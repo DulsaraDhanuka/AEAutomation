@@ -1,0 +1,1 @@
+Adobe automation scripts for After Effects, Illustrator, and Photoshop as part of a video generation pipeline. The automation was written in TypeScript and transpiled to JSX for execution with Adobe ExtendScript.
