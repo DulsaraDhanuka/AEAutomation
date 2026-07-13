@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "module": "none",
+        "noLib": true,
+        "outDir": "scripts/",
+        "types": [
+            "types-for-adobe/AfterEffects/2018"
+        ]
+    },
+    "exclude": [
+        "node_modules",
+        "scripts",
+        "main.jsx"
+    ],
+    "include": [
+      "typescript/**/*"
+    ],
+    "references": [
+      {"path": "../GraphCode/"}
+    ]
+}

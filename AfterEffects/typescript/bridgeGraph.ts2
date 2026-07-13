@@ -1,0 +1,532 @@
+//@include "./Hand.js"
+//@include "./utils.js"
+//@include "./Playhead.js"
+//@include "./graphCode.js"
+//@include "./graphPlayback.js"
+//@include "./Element/Element.js"
+//@include "./CameraController.js"
+//@include "./Element/ElementGroup.js"
+//@include "./Drawer/DrawController.js"
+//@include "./Effects/EffectController.js"
+
+function bridgeMain(mainComp: CompItem, drawingHand: Hand, erasingHand: Hand, BTT_pushing_Hand: Hand, TTB_pushing_Hand: Hand, RTL_pushing_Hand: Hand, LTR_pushing_Hand: Hand): void {
+    let root = decodeTree(mainComp.layers, mainComp);
+
+    let sceneComps: Array<CompItem> = new Array<CompItem>();
+
+    let camera: CameraLayer = <CameraLayer>mainComp.layers.addCamera("CAMERA", [mainComp.width / 2, mainComp.height / 2]);
+    (<Property>camera.property("Position")).setValue([mainComp.width / 2, mainComp.height / 2, -(<Property>camera.property("Camera Options").property("Zoom")).value]);
+    camera.autoOrient = AutoOrientType.NO_AUTO_ORIENT;
+
+    let sceneTemplate = prepareSceneTemplate(mainComp, <CameraLayer>camera, drawingHand, erasingHand, BTT_pushing_Hand, TTB_pushing_Hand, RTL_pushing_Hand, LTR_pushing_Hand);
+
+    root.iterate(function (element: Element | ElementGroup) {
+        if (element.getName().search(/^SCENE [0-9]+$/) != -1 && isType(element, ElementGroup)) {
+            let scene: CompItem = sceneTemplate.duplicate();
+            scene.name = element.getName();
+
+            element.getComp().openInViewer();
+
+            let [sceneTop, sceneLeft, sceneRight, sceneBottom]: [number, number, number, number] = getGroupBoundaries(<ElementGroup>element, true);
+            let [sceneWidth, sceneHeight]: [number, number] = [sceneRight - sceneLeft, sceneBottom - sceneTop];
+
+            app.executeCommand(2004);
+            let index: number = 9999;
+            (<ElementGroup>element).iterate(function (e: Element) {
+                if (e.getLayer().index < index) {
+                    index = e.getLayer().index;
+                }
+
+                e.getLayer().selected = true;
+            }, true);
+            app.executeCommand(18);
+            let sceneLayer: AVLayer = element.getComp().layers.add(scene);
+            sceneLayer.moveAfter(element.getComp().layers[index]);
+            (<Property>sceneLayer.property("Position")).setValue([sceneLeft + (sceneWidth / 2), sceneTop + (sceneHeight / 2), 0]);
+            
+            scene.openInViewer();
+            let nullLayer: AVLayer = scene.layers.addNull(scene.duration);
+            nullLayer.moveToEnd();
+            nullLayer.selected = true;
+            app.executeCommand(20);
+            nullLayer.remove();
+
+            sceneComps.push(scene);
+        }
+    });
+
+    sceneTemplate.remove();
+
+    for (var i = 0; i < sceneComps.length; i++) {
+        processScene(sceneComps[i]);
+    }
+
+    let playhead: Playhead = new Playhead(mainComp.frameRate);
+
+    root = decodeTree(mainComp.layers, mainComp);
+    let main: ElementGroup = new ElementGroup("MAIN", mainComp);
+
+    root.iterate(function (item: Element) {
+        (<AVLayer>item.getLayer()).threeDLayer = true;
+
+        if ((<AVLayer>item.getLayer()).canSetCollapseTransformation && !(isType((<AVLayer>item.getLayer()).source, CompItem))) {
+            (<AVLayer>item.getLayer()).collapseTransformation = true;
+        }
+
+        if (item.getProperties().get("visible")) {
+            if ((<ElementProperty>item.getProperties().get("visible")).getValue() == "none") {
+                item.getLayer().enabled = false;
+            }
+        }
+    }, true);
+
+    root.iterate(function (item: Element | ElementGroup) {
+        if (item.getName() != "CAMERA" && item.getName() != "DRAWING_HAND" && item.getName() != "ERASING_HAND" && item.getName() != "LTR_PUSHING_HAND" && item.getName() != "RTL_PUSHING_HAND" && item.getName() != "BTT_PUSHING_HAND" && item.getName() != "TTB_PUSHING_HAND") {
+            main.add(item);
+        }
+    });
+
+    let [mainTop, mainLeft, mainRight, mainBottom]: [number, number, number, number] = getGroupBoundaries(main, true);
+    let [mainWidth, mainHeight]: [number, number] = [mainRight - mainLeft, mainBottom - mainTop];
+
+    (<Property>drawingHand.containerLayer.property("Position")).setValue([mainLeft + (mainWidth / 2), mainBottom + 300, 0]);
+    (<Property>erasingHand.containerLayer.property("Position")).setValue([mainLeft + (mainWidth / 2), mainBottom + 300, 0]);
+    (<Property>BTT_pushing_Hand.containerLayer.property("Position")).setValue([mainLeft + (mainWidth / 2), mainBottom + 300, 0]);
+    (<Property>TTB_pushing_Hand.containerLayer.property("Position")).setValue([mainLeft + (mainWidth / 2), mainTop - 300, 0]);
+    (<Property>LTR_pushing_Hand.containerLayer.property("Position")).setValue([mainLeft - 300, mainTop + (mainHeight / 2), 0]);
+    (<Property>RTL_pushing_Hand.containerLayer.property("Position")).setValue([mainRight + 300, mainTop + (mainHeight / 2), 0]);
+
+    let cameraController: CameraController = new CameraController(<CameraLayer>((<Element>root.get("CAMERA")).getLayer()));
+
+    let tempGroup = new ElementGroup("temp", mainComp);
+    main.iterate(function (element: Element) {
+        if (element.getName().search(/^SCENE [0-9]+$/) != -1) {
+            tempGroup.add(element);
+            (<AVLayer>element.getLayer()).startTime = playhead.getCurrentTime();
+            cameraController.alignToElement(element, playhead.getCurrentTime());
+            cameraController.zoomToElement(element, 0, playhead.getCurrentTime());
+            playhead.moveForwards((<CompItem>(<AVLayer>element.getLayer()).source).duration);
+            cameraController.pauseMovement(playhead.getCurrentTime());
+            playhead.moveForwards(1.0);
+        }
+    });
+
+    cameraController.alignToElement(tempGroup, playhead.getCurrentTime());
+    cameraController.zoomToElement(tempGroup, 0, playhead.getCurrentTime());
+
+    drawingHand.setOutPoint(playhead.getCurrentTime());
+    erasingHand.setOutPoint(playhead.getCurrentTime());
+    BTT_pushing_Hand.setOutPoint(playhead.getCurrentTime());
+    TTB_pushing_Hand.setOutPoint(playhead.getCurrentTime());
+    RTL_pushing_Hand.setOutPoint(playhead.getCurrentTime());
+    LTR_pushing_Hand.setOutPoint(playhead.getCurrentTime());
+
+    root.iterate(function (item: Element) {
+        if (item.getName().search(/^SCENE [0-9]+$/) != -1) {
+            (<AVLayer>item.getLayer()).timeRemapEnabled = true;
+            let endKeyTime: number = (<Property>(<AVLayer>item.getLayer()).timeRemap).keyTime(2);
+            let endKeyValue: number = <number>(<Property>(<AVLayer>item.getLayer()).timeRemap).keyValue(2);
+            (<Property>(<AVLayer>item.getLayer()).timeRemap).setValueAtTime(endKeyTime - playhead.framesToSeconds(1), endKeyValue - playhead.framesToSeconds(1));
+            (<Property>(<AVLayer>item.getLayer()).timeRemap).removeKey((<Property>(<AVLayer>item.getLayer()).timeRemap).nearestKeyIndex(endKeyTime));
+            (<AVLayer>item.getLayer()).inPoint = 0;
+        }
+
+        item.setOutPoint(playhead.getCurrentTime());
+    }, true);
+
+    mainComp.duration = playhead.getCurrentTime();
+}
+
+function prepareSceneTemplate(mainComp: CompItem, cameraLayer: CameraLayer, drawingHand: Hand, erasingHand: Hand, BTT_pushing_Hand: Hand, TTB_pushing_Hand: Hand, RTL_pushing_Hand: Hand, LTR_pushing_Hand: Hand): CompItem {
+    let sceneTemplate: CompItem = app.project.items.addComp("SCENE_TEMPLATE", mainComp.width, mainComp.height, mainComp.pixelAspect, mainComp.duration, mainComp.frameRate);
+
+    drawingHand.containerLayer.containingComp.openInViewer();
+    app.executeCommand(2004);
+    drawingHand.containerLayer.selected = true;
+    app.executeCommand(19);
+    app.executeCommand(2004);
+    sceneTemplate.openInViewer();
+    app.executeCommand(20);
+
+    erasingHand.containerLayer.containingComp.openInViewer();
+    app.executeCommand(2004);
+    erasingHand.containerLayer.selected = true;
+    app.executeCommand(19);
+    app.executeCommand(2004);
+    sceneTemplate.openInViewer();
+    app.executeCommand(20);
+
+    BTT_pushing_Hand.containerLayer.containingComp.openInViewer();
+    app.executeCommand(2004);
+    BTT_pushing_Hand.containerLayer.selected = true;
+    app.executeCommand(19);
+    app.executeCommand(2004);
+    sceneTemplate.openInViewer();
+    app.executeCommand(20);
+
+    TTB_pushing_Hand.containerLayer.containingComp.openInViewer();
+    app.executeCommand(2004);
+    TTB_pushing_Hand.containerLayer.selected = true;
+    app.executeCommand(19);
+    app.executeCommand(2004);
+    sceneTemplate.openInViewer();
+    app.executeCommand(20);
+
+    RTL_pushing_Hand.containerLayer.containingComp.openInViewer();
+    app.executeCommand(2004);
+    RTL_pushing_Hand.containerLayer.selected = true;
+    app.executeCommand(19);
+    app.executeCommand(2004);
+    sceneTemplate.openInViewer();
+    app.executeCommand(20);
+
+    LTR_pushing_Hand.containerLayer.containingComp.openInViewer();
+    app.executeCommand(2004);
+    LTR_pushing_Hand.containerLayer.selected = true;
+    app.executeCommand(19);
+    app.executeCommand(2004);
+    sceneTemplate.openInViewer();
+    app.executeCommand(20);
+
+    cameraLayer.containingComp.openInViewer();
+    app.executeCommand(2004);
+    cameraLayer.selected = true;
+    app.executeCommand(19);
+    app.executeCommand(2004);
+    sceneTemplate.openInViewer();
+    app.executeCommand(20);
+
+    return sceneTemplate;
+}
+
+function processScene(sceneComp: CompItem): void {
+    let playhead = new Playhead(sceneComp.frameRate);
+
+    let root = decodeTree(sceneComp.layers, sceneComp);
+
+    let main: ElementGroup = arrangeElements(<ElementGroup>(<ElementGroup>root.get(sceneComp.name)).get("MAIN"));
+    let fills: ElementGroup | Element = root.get("FILL");
+    let colors: ElementGroup | Element = root.get("COLOR");
+    let highlighters: ElementGroup | Element = root.get("HIGHLIGHTER");
+
+    let [containerTop, containerLeft, containerRight, containerBottom]: [number, number, number, number] = getGroupBoundaries(root, true);
+    let size: [number, number] = [containerRight - containerLeft, containerBottom - containerTop];
+
+    let hands: { drawingHand: AVLayer, BTT_pushing_Hand: AVLayer, TTB_pushing_Hand: AVLayer, LTR_pushing_Hand: AVLayer, RTL_pushing_Hand: AVLayer, erasingHand: AVLayer, highlightingHand: AVLayer } = {
+        drawingHand: <AVLayer>(<Element>root.get("DRAWING_HAND")).getLayer(),
+        BTT_pushing_Hand: <AVLayer>(<Element>root.get("BTT_PUSHING_HAND")).getLayer(),
+        TTB_pushing_Hand: <AVLayer>(<Element>root.get("TTB_PUSHING_HAND")).getLayer(),
+        LTR_pushing_Hand: <AVLayer>(<Element>root.get("LTR_PUSHING_HAND")).getLayer(),
+        RTL_pushing_Hand: <AVLayer>(<Element>root.get("RTL_PUSHING_HAND")).getLayer(),
+        erasingHand: <AVLayer>(<Element>root.get("ERASING_HAND")).getLayer(),
+        highlightingHand: <AVLayer>(<Element>root.get("DRAWING_HAND")).getLayer()
+    };
+
+    let [mainTop, mainLeft, mainRight, mainBottom]: [number, number, number, number] = getGroupBoundaries(main, true);
+    let [mainWidth, mainHeight]: [number, number] = [mainRight - mainLeft, mainBottom - mainTop];
+
+    (<Property>hands.drawingHand.property("Position")).setValue([mainLeft + (mainWidth / 2), mainBottom + 300, 0]);
+    (<Property>hands.erasingHand.property("Position")).setValue([mainLeft + (mainWidth / 2), mainBottom + 300, 0]);
+    (<Property>hands.BTT_pushing_Hand.property("Position")).setValue([mainLeft + (mainWidth / 2), mainBottom + 300, 0]);
+    (<Property>hands.TTB_pushing_Hand.property("Position")).setValue([mainLeft + (mainWidth / 2), mainTop - 300, 0]);
+    (<Property>hands.LTR_pushing_Hand.property("Position")).setValue([mainLeft - 300, mainTop + (mainHeight / 2), 0]);
+    (<Property>hands.RTL_pushing_Hand.property("Position")).setValue([mainRight + 300, mainTop + (mainHeight / 2), 0]);
+
+    let drawController: DrawController = new DrawController(playhead, size, hands);
+    let effectController: EffectController = new EffectController(playhead);
+
+    root.iterate(function (item: Element) {
+        (<AVLayer>item.getLayer()).threeDLayer = true;
+
+        if ((<AVLayer>item.getLayer()).canSetCollapseTransformation && !(isType((<AVLayer>item.getLayer()).source, CompItem))) {
+            (<AVLayer>item.getLayer()).collapseTransformation = true;
+        }
+
+        if (item.getProperties().get("visible")) {
+            if ((<ElementProperty>item.getProperties().get("visible")).getValue() == "none") {
+                item.getLayer().enabled = false;
+            }
+        }
+    }, true);
+
+    let camera: CameraLayer = <CameraLayer><unknown>(<Element>root.get("CAMERA")).getLayer();
+    let cameraController: CameraController = new CameraController(camera);
+
+    let referenceDelay = 0.5;
+    let graph = buildGraph(main);
+    let mainGroup = new ElementGroup("MAIN", sceneComp);
+
+    /*let highlighters: ElementGroup = new ElementGroup("HIGHLIGHTERS", sceneComp);*/
+
+    //atomTransition("MAIN_NODE", sceneComp, <FootageItem>searchProjectItem("ss", FootageItem));
+
+    cameraController.alignToElement((<ElementGroup>(<Vertex>graph.vertices[0]).element).get("NODE"));
+    cameraController.zoomToElement((<ElementGroup>(<Vertex>graph.vertices[0]).element).get("NODE"), 0);
+
+    cameraController.alignToElement((<ElementGroup>(<Vertex>graph.vertices[0]).element).get("NODE"), playhead.getCurrentTime());
+    cameraController.zoomToElement((<ElementGroup>(<Vertex>graph.vertices[0]).element).get("NODE"), 0, playhead.getCurrentTime());
+
+    traverseGraph(graph, function (vertex: Vertex | ReferenceVertex, edge: Edge) {
+
+        if (isType(vertex, Vertex)) {
+            if ((<ElementGroup>(<Vertex>vertex).element).get("NODE").getProperties().get("drawer") && (<ElementProperty>(<ElementGroup>(<Vertex>vertex).element).get("NODE").getProperties().get("drawer")).getValue() == "none") {
+                let node: Element | ElementGroup = (<ElementGroup>(<Vertex>vertex).element).get("NODE");
+                let innerPlayhead: Playhead = new Playhead(playhead.fps);
+                innerPlayhead.moveForwards(playhead.getCurrentTime());
+                if (isType(node, Element)) {
+                    (<Property>(<Element>node).getLayer().property("Opacity")).setValueAtTime(innerPlayhead.getCurrentTime(), 0);
+                    innerPlayhead.moveForwards(1, true);
+                    (<Property>(<Element>node).getLayer().property("Opacity")).setValueAtTime(innerPlayhead.getCurrentTime(), 100);
+                } else if (isType(node, ElementGroup)) {
+                    (<ElementGroup>node).iterate(function (element: Element) {
+                        (<Property>element.getLayer().property("Opacity")).setValueAtTime(innerPlayhead.getCurrentTime(), 0);
+                    }, true);
+                    innerPlayhead.moveForwards(1, true);
+                    (<ElementGroup>node).iterate(function (element: Element) {
+                        (<Property>element.getLayer().property("Opacity")).setValueAtTime(innerPlayhead.getCurrentTime(), 100);
+                    }, true);
+                }
+            }
+        }
+
+        if (edge != undefined && (edge.element != undefined && edge.element != null)) {
+            let tempGroup: ElementGroup = new ElementGroup("tmp", sceneComp);
+
+            if (isType(graph.vertices[edge.v1ID], Vertex)) {
+                tempGroup.add((<ElementGroup>(<Vertex>graph.vertices[edge.v1ID]).element).get("NODE"));
+            } else if (isType(graph.vertices[edge.v1ID], ReferenceVertex)) {
+                tempGroup.add((<ElementGroup>(<Vertex>graph.vertices[(<ReferenceVertex>graph.vertices[edge.v1ID]).vertexID]).element).get("NODE"));
+            }
+
+            tempGroup.add(edge.element);
+            mainGroup.add(edge.element);
+
+            if (isType(graph.vertices[edge.v2ID], Vertex)) {
+                tempGroup.add((<ElementGroup>(<Vertex>graph.vertices[edge.v2ID]).element).get("NODE"));
+            } else if (isType(graph.vertices[edge.v2ID], ReferenceVertex)) {
+                tempGroup.add((<ElementGroup>(<Vertex>graph.vertices[(<ReferenceVertex>graph.vertices[edge.v2ID]).vertexID]).element).get("NODE"));
+            }
+
+            cameraController.pauseMovement(playhead.getCurrentTime());
+
+            playhead.moveForwards(1.0);
+
+            if (!(vertex.properties.get("zoom") != undefined && vertex.properties.get("zoom") != null && (<ElementProperty>vertex.properties.get("zoom")).getValue() == "false")) {
+                if (vertex.properties.get("zoom") != undefined && vertex.properties.get("zoom") != null && (<ElementProperty>vertex.properties.get("zoom")).getValue() == "fullscreen") {
+                    cameraController.alignToElement(tempGroup, playhead.getCurrentTime());
+                    cameraController.zoomToElement(tempGroup, 0, playhead.getCurrentTime());
+                } else {
+                    cameraController.alignToElement(main, playhead.getCurrentTime());
+                    cameraController.zoomToElement(main, 0, playhead.getCurrentTime());
+                }
+            }
+
+            drawEdgeElement(edge.element, playhead, drawController, effectController);
+
+            playhead.moveForwards(1.0);
+        }
+
+        if (isType(vertex, Vertex)) {
+            cameraController.pauseMovement(playhead.getCurrentTime());
+
+            playhead.moveForwards(1.0);
+
+            mainGroup.add((<ElementGroup>(<Vertex>vertex).element).get("NODE"));
+
+            /********************
+             ** Do this better **
+             ********************/
+            if (!((vertex.properties.get("zoom") != undefined || vertex.properties.get("zoom") != null) && (<ElementProperty>vertex.properties.get("zoom")).getValue() == "false")) {
+                if (vertex.properties.get("zoom") != undefined && vertex.properties.get("zoom") != null && (<ElementProperty>vertex.properties.get("zoom")).getValue() == "fullscreen") {
+                    cameraController.alignToElement(main, playhead.getCurrentTime());
+                    cameraController.zoomToElement(main, 0, playhead.getCurrentTime());
+                } else {
+                    cameraController.alignToElement((<ElementGroup>(<Vertex>vertex).element).get("NODE"), playhead.getCurrentTime());
+                    cameraController.zoomToElement((<ElementGroup>(<Vertex>vertex).element).get("NODE"), 0, playhead.getCurrentTime());
+                }
+            }
+            /*cameraController.alignToElement((<ElementGroup>(<Vertex>vertex).element).get("NODE"), playhead.getCurrentTime());
+            cameraController.zoomToElement((<ElementGroup>(<Vertex>vertex).element).get("NODE"), 100, playhead.getCurrentTime());*/
+        } else if (isType(vertex, ReferenceVertex)) {
+            cameraController.pauseMovement(playhead.getCurrentTime());
+
+            playhead.moveForwards(1.0);
+
+            mainGroup.add((<Vertex>graph.vertices[(<ReferenceVertex>vertex).vertexID]).element);
+
+            if (!((vertex.properties.get("zoom") != undefined || vertex.properties.get("zoom") != null) && (<ElementProperty>vertex.properties.get("zoom")).getValue() == "false")) {
+                if (vertex.properties.get("zoom") != undefined && vertex.properties.get("zoom") != null && (<ElementProperty>vertex.properties.get("zoom")).getValue() == "fullscreen") {
+                    cameraController.alignToElement(main, playhead.getCurrentTime());
+                    cameraController.zoomToElement(main, 0, playhead.getCurrentTime());
+                } else {
+                    cameraController.alignToElement((<ElementGroup>(<Vertex>graph.vertices[(<ReferenceVertex>vertex).vertexID]).element).get("NODE"), playhead.getCurrentTime());
+                    cameraController.zoomToElement((<ElementGroup>(<Vertex>graph.vertices[(<ReferenceVertex>vertex).vertexID]).element).get("NODE"), 0, playhead.getCurrentTime());
+                }
+            }
+
+            if ((<ReferenceVertex>vertex).type == "erase") {
+                eraseVertexElement((<ElementGroup>(<Vertex>graph.vertices[(<ReferenceVertex>vertex).vertexID]).element).get("NODE"), vertex.properties, playhead, drawController, effectController);
+                playhead.moveForwards(1.0);
+            }
+
+            cameraController.pauseMovement(playhead.getCurrentTime());
+        }
+
+        if (isType(vertex, Vertex)) {
+            /*if ((<ElementGroup>(<Vertex>vertex).element).get("HIGHLIGHTER")) {
+                highlighters.add((<ElementGroup>(<Vertex>vertex).element).get("HIGHLIGHTER"));
+            }*/
+
+            if (!((<ElementGroup>(<Vertex>vertex).element).get("NODE").getProperties().get("drawer") && (<ElementProperty>(<ElementGroup>(<Vertex>vertex).element).get("NODE").getProperties().get("drawer")).getValue() == "none")) {
+                drawVertexElement((<ElementGroup>(<Vertex>vertex).element).get("NODE"), playhead, drawController, effectController);
+            }
+
+            /*if (isType((<ElementGroup>(<Vertex>vertex).element).get("NODE"), Video)) {
+                (<Video>(<ElementGroup>(<Vertex>vertex).element).get("NODE")).play(playhead);
+            } else if (isType((<ElementGroup>(<Vertex>vertex).element).get("NODE"), ElementGroup)) {
+                (<ElementGroup>(<ElementGroup>(<Vertex>vertex).element).get("NODE")).iterate(function (element: Element) {
+                    if (isType(element, Video)) {
+                        (<Video>element).play(playhead);
+                    }
+                }, true);
+            }*/
+
+            playhead.moveForwards(0.25);
+
+            if ((<Vertex>vertex).scene && (<Vertex>vertex).scene != null) {
+                if (isType((<Vertex>vertex).scene, Element)) {
+                    (<Property>(<Element>(<Vertex>vertex).scene).getLayer().property("Opacity")).setValueAtTime(playhead.getCurrentTime(), 0);
+                    playhead.moveForwards(1, true);
+                    (<Property>(<Element>(<Vertex>vertex).scene).getLayer().property("Opacity")).setValueAtTime(playhead.getCurrentTime(), 100);
+                } else if (isType((<Element>(<Vertex>vertex).scene), ElementGroup)) {
+                    (<ElementGroup>(<Vertex>vertex).scene).iterate(function (element: Element) {
+                        (<Property>element.getLayer().property("Opacity")).setValueAtTime(playhead.getCurrentTime(), 0);
+                    }, true);
+                    playhead.moveForwards(1, true);
+                    (<ElementGroup>(<Vertex>vertex).scene).iterate(function (element: Element) {
+                        (<Property>element.getLayer().property("Opacity")).setValueAtTime(playhead.getCurrentTime(), 100);
+                    }, true);
+                }
+
+                mainGroup.add((<Vertex>vertex).scene);
+            }
+        }
+
+        cameraController.pauseMovement(playhead.getCurrentTime());
+
+        playhead.moveForwards(1.0);
+    });
+
+    cameraController.pauseMovement(playhead.getCurrentTime());
+
+    playhead.moveForwards(1.0);
+
+    if ((<ElementGroup>(<Vertex>graph.vertices[0]).element).get("NODE").getProperties() != null && (<ElementProperty>(<ElementGroup>(<Vertex>graph.vertices[0]).element).get("NODE").getProperties().get("end")) != null && (<ElementProperty>(<ElementGroup>(<Vertex>graph.vertices[0]).element).get("NODE").getProperties().get("end")).getValue() == "true") {
+        cameraController.alignToElement((<ElementGroup>(<Vertex>graph.vertices[0]).element).get("NODE"), playhead.getCurrentTime());
+        cameraController.zoomToElement((<ElementGroup>(<Vertex>graph.vertices[0]).element).get("NODE"), 0, playhead.getCurrentTime());
+    } else {
+        cameraController.alignToElement(mainGroup, playhead.getCurrentTime());
+        cameraController.zoomToElement(mainGroup, 0, playhead.getCurrentTime());
+    }
+
+    playhead.moveForwards(1.0);
+
+    if (fills) {
+        if (isType(fills, Element)) {
+            drawController.draw(fills);
+        } else if (isType(fills, ElementGroup)) {
+            (<ElementGroup>fills).sort(function (a: Element | ElementGroup, b: Element | ElementGroup) {
+                let aIndex: number = parseInt(a.getName());
+                let bIndex: number = parseInt(b.getName());
+
+                if (aIndex > bIndex) {
+                    return 1;
+                } else if (aIndex > bIndex) {
+                    return -1;
+                } else {
+                    return 0;
+                }
+            });
+
+            (<ElementGroup>fills).iterate(function (element: Element) {
+                drawController.draw(element);
+                playhead.moveForwards(1.0);
+            }, true)
+        }
+    }
+
+    if (colors) {
+        if (isType(colors, Element)) {
+            (<Property>(<Element>colors).getLayer().property("Opacity")).setValueAtTime(playhead.getCurrentTime(), 0);
+            (<Property>(<Element>colors).getLayer().property("Opacity")).setInterpolationTypeAtKey((<Property>(<Element>colors).getLayer().property("Opacity")).numKeys, KeyframeInterpolationType.BEZIER, KeyframeInterpolationType.BEZIER);
+            playhead.moveForwards(5, true);
+            (<Property>(<Element>colors).getLayer().property("Opacity")).setValueAtTime(playhead.getCurrentTime(), 100);
+            (<Property>(<Element>colors).getLayer().property("Opacity")).setInterpolationTypeAtKey((<Property>(<Element>colors).getLayer().property("Opacity")).numKeys, KeyframeInterpolationType.BEZIER, KeyframeInterpolationType.BEZIER);
+            playhead.moveForwards(1.0);
+        } else if (isType(colors, ElementGroup)) {
+            (<ElementGroup>colors).sort(function (a: Element | ElementGroup, b: Element | ElementGroup) {
+                let aIndex: number = parseInt(a.getName());
+                let bIndex: number = parseInt(b.getName());
+
+                if (aIndex > bIndex) {
+                    return 1;
+                } else if (aIndex > bIndex) {
+                    return -1;
+                } else {
+                    return 0;
+                }
+            });
+
+            (<ElementGroup>colors).iterate(function (element: Element) {
+                (<Property>element.getLayer().property("Opacity")).setValueAtTime(playhead.getCurrentTime(), 0);
+                (<Property>element.getLayer().property("Opacity")).setInterpolationTypeAtKey((<Property>element.getLayer().property("Opacity")).numKeys, KeyframeInterpolationType.BEZIER, KeyframeInterpolationType.BEZIER);
+                playhead.moveForwards(5, true);
+                (<Property>element.getLayer().property("Opacity")).setValueAtTime(playhead.getCurrentTime(), 100);
+                (<Property>element.getLayer().property("Opacity")).setInterpolationTypeAtKey((<Property>element.getLayer().property("Opacity")).numKeys, KeyframeInterpolationType.BEZIER, KeyframeInterpolationType.BEZIER);
+                playhead.moveForwards(1.0);
+            }, true);
+        }
+    }
+
+    if (highlighters) {
+        if (isType(highlighters, Element)) {
+            drawController.draw(highlighters);
+        } else if (isType(highlighters, ElementGroup)) {
+            (<ElementGroup>highlighters).sort(function (a: Element | ElementGroup, b: Element | ElementGroup) {
+                let aIndex: number = parseInt(a.getName());
+                let bIndex: number = parseInt(b.getName());
+
+                if (aIndex > bIndex) {
+                    return 1;
+                } else if (aIndex > bIndex) {
+                    return -1;
+                } else {
+                    return 0;
+                }
+            });
+
+            (<ElementGroup>highlighters).iterate(function (element: Element) {
+                drawController.draw(element);
+                playhead.moveForwards(1.0);
+            }, true)
+        }
+    }
+
+    /*(<Property>camera.property("X Rotation")).expression = "if (time <= " + playhead.getCurrentTime() + ") { freq = 0.1; amp = 2; accum = freq * time; wiggle(1, amp, 1, .5, accum); }";
+    (<Property>camera.property("Y Rotation")).expression = "if (time <= " + playhead.getCurrentTime() + ") { freq = 0.3; amp = 4; accum = freq * time; wiggle(1, amp, 1, .5, accum); }";
+    (<Property>camera.property("Z Rotation")).expression = "if (time <= " + playhead.getCurrentTime() + ") { freq = 0.2; amp = 7; accum = freq * time; wiggle(1, amp, 1, .5, accum); }";*/
+
+    sceneComp.duration = playhead.getCurrentTime();
+
+    root.iterate(function (item: Element) {
+        item.setOutPoint(playhead.getCurrentTime());
+    }, true);
+
+    for (var i = 0; i < sceneComp.layers.length; i++) {
+        sceneComp.layers[i + 1].outPoint = playhead.getCurrentTime();
+    }
+}
+
+function prepareBridgeProject(mindMapFile: File, drawingHandFile: File, pushingHandFile: File, erasingHandFile: File): [CompItem, Hand, Hand, Hand, Hand, Hand, Hand] {
+    return prepareProject(mindMapFile, drawingHandFile, pushingHandFile, erasingHandFile);
+}

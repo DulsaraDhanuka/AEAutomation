@@ -1,0 +1,18 @@
+{
+  "name": "photoshop",
+  "version": "0.0.0",
+  "description": "Photoshop",
+  "main": "app.js",
+  "author": {
+    "name": ""
+  },
+  "scripts": {
+    "build-static": "xcopy \"typescript\\photoshopFunctions.js\" \"scripts\" /Y && xcopy \"typescript\\windows.js\" \"scripts\" /Y && xcopy \"typescript\\removeModels.js\" \"scripts\" /Y && xcopy \"typescript\\unsmartlayer.js\" \"scripts\" /Y && xcopy \"typescript\\splitter.js\" \"scripts\" /Y && xcopy \"typescript\\splitterUtils.js\" \"scripts\" && xcopy \"typescript\\styleImageAction.js\" \"scripts\" && xcopy \"typescript\\sketchImageAction.js\" \"scripts\" && xcopy \"typescript\\removeBackgroundAction.js\" \"scripts\" /Y",
+    "build": "if exist \"scripts\" ( rmdir /s/q \"scripts\" ) && md \"scripts\" && tsc --build && npm run build-static",
+    "clean": "tsc --build --clean"
+  },
+  "devDependencies": {
+    "@types/node": "^8.0.14",
+    "typescript": "^3.2.2"
+  }
+}

@@ -1,0 +1,2 @@
+//@include "./mindmapMainWrapper.js"
+mindmapMain();

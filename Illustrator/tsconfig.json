@@ -1,0 +1,19 @@
+{
+    "compilerOptions": {
+        "module": "none",
+        "noLib": true,
+        "outDir": "scripts/",
+        "types": [
+            "types-for-adobe/Illustrator/2015.3",
+        ],
+        "downlevelIteration": true
+    },
+    "exclude": [
+        "node_modules",
+        "scripts",
+        "main.jsx"
+    ],
+    "include": [
+        "typescript/**/*"
+    ],
+}

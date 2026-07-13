@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "module": "none",
+        "lib": [ "es5" ],
+        "outFile": "scripts/graphCode.js",
+        "composite": true
+    },
+    "exclude": [
+        "node_modules",
+        "scripts",
+        "main.jsx"
+    ],
+    "include": [
+        "typescript/**/*"
+    ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "aftereffects",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+	"scripts": {
+		"build": "if exist \"scripts\" ( rmdir /s/q \"scripts\" ) && md \"scripts\" && tsc --build && xcopy \"typescript\\json.js\" \"scripts\" /Y  && xcopy \"typescript\\bridgeTalkPolyfill.js\" \"scripts\" /Y && xcopy \"typescript\\ParralaxPresets.json\" \"scripts\" /Y && xcopy \"typescript\\Transitions\\Transitions\" \"scripts\\Transitions\\Transitions\" /i && xcopy \"typescript\\Drawer\\DrawTypes\\VectorDrawerMasks\" \"scripts\\Drawer\\DrawTypes\\VectorDrawerMasks\" /i && npm run-script build --prefix \"..\\GraphCode\"",
+		"clean": "tsc --build --clean"
+	},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "types-for-adobe": "^1.5.0"
+  }
+}

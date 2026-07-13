@@ -1,0 +1,1 @@
+﻿declare function sequence_player_dialog() : Window;

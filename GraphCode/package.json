@@ -1,0 +1,17 @@
+{
+  "name": "graphcode",
+  "version": "0.0.0",
+  "description": "GraphCode",
+  "main": "app.js",
+  "author": {
+    "name": ""
+  },
+  "scripts": {
+    "build": "if exist \"scripts\" ( rmdir /s/q \"scripts\" ) && md \"scripts\" && tsc --build && xcopy \"scripts\\graphCode.js\" \"..\\AfterEffects\\scripts\\\" /Y && xcopy \"scripts\\graphCode.js\" \"..\\Photoshop\\scripts\\\" /Y",
+    "clean": "tsc --build --clean"
+  },
+  "devDependencies": {
+    "@types/node": "^8.0.14",
+    "typescript": "^3.2.2"
+  }
+}
